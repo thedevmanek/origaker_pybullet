@@ -1,1 +1,4 @@
 /.vscode
+location.txt
+pointcloud.txt
+__pycache__/*
