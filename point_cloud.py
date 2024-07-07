@@ -19,22 +19,17 @@ filename = 'pointcloud.txt'
 # Read coordinates from file
 coordinates = load_coordinates(filename)
 print(len(coordinates))
-for i in range(len(coordinates)):
-    # Unpack coordinates
-    x, y, _ = zip(*coordinates[i])  # Ignore z coordinate
 
-    # Create a new figure for plotting
-    plt.figure()
-
-    # Plot the coordinates
-    plt.scatter(x, y, c='r', marker='o')
-
-    # Label axes
-    plt.xlabel('X coordinate')
-    plt.ylabel('Y coordinate')
-
-    # Set plot title
-    plt.title('2D Scatter Plot of Coordinates')
-
-    # Show plot
-    plt.show()
+# Unpack coordinates
+x, y, _ = zip(*coordinates[0])  # Ignore z coordinate
+# Create a new figure for plotting
+plt.figure()
+# Plot the coordinates
+plt.scatter(x, y, c='r', marker='o')
+# Label axes
+plt.xlabel('X coordinate')
+plt.ylabel('Y coordinate')
+# Set plot title
+plt.title('2D Scatter Plot of Coordinates')
+# Show plot
+plt.show()

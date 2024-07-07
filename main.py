@@ -3,16 +3,22 @@ import numpy as np
 import time
 import pybullet_data
 from wall_creator import gen_room
+import open3d as o3d
+import numpy as np
+import math
 # LiDAR parameters
 lidar_range = 20.0  # Maximum range of the LiDAR sensor
 num_rays = 360      # Number of rays (resolution)
 
-WALK_FORWARD=True
+WALK_FORWARD=False
 WALK_BACKWARD=False
 TURN_RIGHT=False
 TURN_LEFT=False
 import pybullet as p
 import numpy as np
+import pybullet_planning as pp
+
+
 
 def perform_lidar_scan(robotId,sensor_pos, sensor_orient, num_rays, lidar_range):
     lidar_data = []
@@ -31,14 +37,13 @@ def perform_lidar_scan(robotId,sensor_pos, sensor_orient, num_rays, lidar_range)
         # Perform the ray test with a callback to filter out the robot
         # rayTest returns a tuple: (objectUniqueId, linkIndex, hitPos, hitNormal)
         ray_result = p.rayTest(ray_from, ray_to)
-        
-        # Filter out the robot
-        filtered_result = [result for result in ray_result if result[0] != robotId]
-        
-        if filtered_result:
-            # Append the hit position if there is any valid result
-            lidar_data.append(filtered_result[0][3])
 
+        if ray_result[0][0]==robotId:
+            new_coord=(ray_result[0][3][0]+0.1,ray_result[0][3][1]+0.1,ray_result[0][3][2]+0.1)
+            ray_test1=p.rayTest(new_coord,ray_to)
+            lidar_data.append(ray_test1[0][3])
+        else:
+            lidar_data.append(ray_result[0][3])
     return lidar_data
 
 
@@ -88,7 +93,72 @@ def run_double_joint_simulation(joint_names, target_angle1,target_angle2, robotI
         
         p.stepSimulation()
         time.sleep(1. / 240.)
+def vector_to_euler(pos):
+    x,y,z=pos
+    yaw = math.atan2(y, x)
+    hyp_xy = math.sqrt(x**2 + y**2)
+    pitch = math.atan2(z, hyp_xy)
+    roll = 0
+    yaw_deg = math.degrees(yaw)
+    pitch_deg = math.degrees(pitch)
+    roll_deg = math.degrees(roll)
+    
+    return roll_deg, pitch_deg, yaw_deg
 
+def get_distance(start,stop):
+    x1,y1,_=start
+    x2,y2,_=stop
+    distance = math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+    return distance
+
+def normalize_angle(angle):
+    return (angle + np.pi) % (2 * np.pi) - np.pi
+
+def calculate_rotation_direction(current_orientation, dest_orientation):
+    yaw_diff = normalize_angle(dest_orientation - current_orientation)
+    if yaw_diff<0:
+        return 'clockwise',yaw_diff
+    else:
+        return 'anticlockwise',yaw_diff
+
+def go_to_loc(current_orientation,dest_pos):
+    global WALK_BACKWARD,WALK_FORWARD,TURN_LEFT,TURN_RIGHT
+    rotation_quat = p.getQuaternionFromEuler([0, 0, -135*convert_rad_to_deg])
+    resulting_quat = p.multiplyTransforms([0, 0, 0], current_orientation, [0, 0, 0], rotation_quat)[1]
+    dest_orientation=vector_to_euler(dest_pos)[2]*convert_rad_to_deg
+    current_orientation=p.getEulerFromQuaternion(resulting_quat)
+    current_position, _ = p.getBasePositionAndOrientation(robotId)
+    dst_to_loc=get_distance(current_position,dest_pos)
+    if not WALK_FORWARD and not WALK_BACKWARD:
+        orient,yaw_diff=calculate_rotation_direction(current_orientation[2],dest_orientation)
+        print(orient,yaw_diff)
+        if orient=='clockwise' and yaw_diff<-0.1:
+            WALK_FORWARD=False
+            WALK_BACKWARD=False
+            TURN_RIGHT=True
+            TURN_LEFT=False
+        elif orient=='anticlockwise'and yaw_diff>0.1:
+            WALK_FORWARD=False
+            WALK_BACKWARD=False
+            TURN_RIGHT=False
+            TURN_LEFT=True
+        else:
+            WALK_FORWARD=False
+            WALK_BACKWARD=False
+            TURN_RIGHT=False
+            TURN_LEFT=False
+    if not TURN_LEFT and not TURN_RIGHT:
+        print(dst_to_loc)
+        if dst_to_loc>0.15:
+            WALK_FORWARD=True
+            WALK_BACKWARD=False
+            TURN_RIGHT=False
+            TURN_LEFT=False
+        else:
+            WALK_FORWARD=False
+            WALK_BACKWARD=False
+            TURN_RIGHT=False
+            TURN_LEFT=False
 
 
 # Connect to PyBullet
@@ -99,15 +169,15 @@ p.setGravity(0, 0, -10)
 # Load the plane and robot URDF
 planeId = p.loadURDF("plane.urdf")
 
-
+convert_rad_to_deg = 3.14 / 180
 startPos = [0, 0, 0]
-startOrientation = p.getQuaternionFromEuler([0, 0, 95])
+startOrientation = p.getQuaternionFromEuler([0, 0,0])
 robotId = p.loadURDF("urdf/origaker_fix.urdf", startPos, startOrientation)
 
 gen_room()
 # Get joint indices
 joint_indices = {p.getJointInfo(robotId, i)[1].decode('UTF-8'): i for i in range(p.getNumJoints(robotId))}
-convert_rad_to_deg = 3.14 / 180
+
 # Define target angle (in radians)
 target_angle = convert_rad_to_deg * 10  # Example target angle for the joint
 angles = [
@@ -131,15 +201,21 @@ while time.time() - start_time < settle_time:
     time.sleep(1)
 
 for angle in angles:
-    run_single_joint_simulation(angle[0],angle[1], robotId,duration=0.8)
+    run_single_joint_simulation(angle[0],angle[1], robotId,duration=0.5)
 
 open('location.txt', 'w').close()
 open("pointcloud.txt", "w").close()
 
 while True:
     basePos, baseOrn = p.getBasePositionAndOrientation(robotId) # Get model position
-    p.resetDebugVisualizerCamera( cameraDistance=0.7, cameraYaw=0, cameraPitch=-85,cameraTargetPosition=basePos) # fix camera onto model
-    time.sleep(0.01)
+    p.resetDebugVisualizerCamera( cameraDistance=4.7, cameraYaw=0, cameraPitch=-85,cameraTargetPosition=basePos) # fix camera onto model
+    #Mapping
+    current_position, current_orientation = p.getBasePositionAndOrientation(robotId)
+    lidar_scan = perform_lidar_scan(robotId,current_position, current_orientation, num_rays, lidar_range)
+    with open("pointcloud.txt", "a") as file:
+        file.write(f"{lidar_scan}\n")
+    req_position=[1,-1,0]
+    go_to_loc(current_orientation,req_position)
     if WALK_FORWARD:
         run_single_joint_simulation("tl1_tl2",-convert_rad_to_deg * 90, robotId)
         run_single_joint_simulation("base_tl1",-convert_rad_to_deg * 40, robotId,duration=0.2)
@@ -149,9 +225,6 @@ while True:
         run_single_joint_simulation("bl1_bl2",-convert_rad_to_deg * 70, robotId)
         time.sleep(0.5)
         run_double_joint_simulation(["base_bl1","base_tl1"],convert_rad_to_deg * 13,convert_rad_to_deg * 13, robotId)
-        current_position, previous_orientation = p.getBasePositionAndOrientation(robotId)
-        with open("location.txt", "a") as file:
-            file.write(f"{current_position}\n")
         run_single_joint_simulation("tr1_tr2",-convert_rad_to_deg * 90, robotId)
         run_single_joint_simulation("base_tr1",-convert_rad_to_deg * 40, robotId,duration=0.2)
         run_single_joint_simulation("tr1_tr2",-convert_rad_to_deg * 70, robotId)
@@ -160,13 +233,8 @@ while True:
         run_single_joint_simulation("br1_br2",-convert_rad_to_deg * 70, robotId)
         time.sleep(0.5)
         run_double_joint_simulation(["base_br1","base_tr1"],convert_rad_to_deg * 15,convert_rad_to_deg * 8, robotId)
-        current_position, current_orientation = p.getBasePositionAndOrientation(robotId)
-        print()
-        with open("location.txt", "a") as file:
-            file.write(f"{current_position}\n")
         lidar_scan = perform_lidar_scan(robotId,current_position, current_orientation, num_rays, lidar_range)
-        with open("pointcloud.txt", "a") as file:
-            file.write(f"{lidar_scan}\n")
+
 
     elif WALK_BACKWARD:
         run_single_joint_simulation("tr1_tr2",-convert_rad_to_deg * 90, robotId)
@@ -177,21 +245,26 @@ while True:
         run_single_joint_simulation("br1_br2",-convert_rad_to_deg * 70, robotId)
         run_double_joint_simulation(["base_br1","base_tr1"],convert_rad_to_deg * 20,convert_rad_to_deg * 10, robotId)
         run_single_joint_simulation("tl1_tl2",-convert_rad_to_deg * 90, robotId)
-        run_single_joint_simulation("base_tl1",convert_rad_to_deg * 40, robotId)
+        run_single_joint_simulation("base_tl1",convert_rad_to_deg * 60, robotId)
         run_single_joint_simulation("tl1_tl2",-convert_rad_to_deg * 70, robotId)
         run_single_joint_simulation("bl1_bl2",-convert_rad_to_deg * 90, robotId)
-        run_single_joint_simulation("base_bl1",convert_rad_to_deg * 40, robotId)
+        run_single_joint_simulation("base_bl1",convert_rad_to_deg * 60, robotId)
         run_single_joint_simulation("bl1_bl2",-convert_rad_to_deg * 70, robotId)
         run_double_joint_simulation(["base_bl1","base_tl1"],convert_rad_to_deg * 0,convert_rad_to_deg * 0, robotId)
+    elif TURN_LEFT:
+        run_single_joint_simulation("tl1_tl2",-convert_rad_to_deg * 90, robotId)
+        run_single_joint_simulation("base_tl1",-convert_rad_to_deg * 60, robotId)
+        run_single_joint_simulation("tl1_tl2",-convert_rad_to_deg * 70, robotId)
+        run_single_joint_simulation("bl1_bl2",-convert_rad_to_deg * 90, robotId)
+        run_single_joint_simulation("base_bl1",-convert_rad_to_deg * 60, robotId)
+        run_single_joint_simulation("bl1_bl2",-convert_rad_to_deg * 70, robotId)
+        run_double_joint_simulation(["base_bl1","base_tl1"],convert_rad_to_deg * 0,convert_rad_to_deg * 0, robotId)
+    elif TURN_RIGHT:
+        run_single_joint_simulation("tr1_tr2",-convert_rad_to_deg * 90, robotId)
+        run_single_joint_simulation("base_tr1",-convert_rad_to_deg * 60, robotId)
+        run_single_joint_simulation("tr1_tr2",-convert_rad_to_deg * 80, robotId)
+        run_single_joint_simulation("br1_br2",-convert_rad_to_deg * 90, robotId)
+        run_single_joint_simulation("base_br1",-convert_rad_to_deg * 60, robotId)
+        run_single_joint_simulation("br1_br2",-convert_rad_to_deg * 90, robotId)
+        run_double_joint_simulation(["base_br1","base_tr1"],convert_rad_to_deg * 20,convert_rad_to_deg * 10, robotId)
 
-
- # Set up the plot
-fig, ax = plt.subplots()
-ax.set_title('Live Robot Path')
-ax.set_xlabel('X Position')
-ax.set_ylabel('Y Position')
-ax.grid()
-line, = ax.plot([], [], marker='o', markersize=2, linestyle='-', color='blue')
-# Initialize plot limits
-ax.set_xlim(-5, 5)
-ax.set_ylim(-5, 5)
