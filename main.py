@@ -10,13 +10,14 @@ import math
 lidar_range = 20.0  # Maximum range of the LiDAR sensor
 num_rays = 360      # Number of rays (resolution)
 
+POS_REACHED=True
 WALK_FORWARD=False
 WALK_BACKWARD=False
 TURN_RIGHT=False
 TURN_LEFT=False
 import pybullet as p
 import numpy as np
-import pybullet_planning as pp
+from path_planning import plan_path
 
 
 
@@ -93,17 +94,36 @@ def run_double_joint_simulation(joint_names, target_angle1,target_angle2, robotI
         
         p.stepSimulation()
         time.sleep(1. / 240.)
-def vector_to_euler(pos):
-    x,y,z=pos
-    yaw = math.atan2(y, x)
-    hyp_xy = math.sqrt(x**2 + y**2)
-    pitch = math.atan2(z, hyp_xy)
+import math
+
+def vector_to_euler_with_respect_to_point(pos, ref_point):
+    x, y, z = pos
+    px, py, pz = ref_point
+    
+    # Translate the position to the new origin
+    translated_x = x - px
+    translated_y = y - py
+    translated_z = z - pz
+    
+    # Compute the yaw (rotation around z-axis)
+    yaw = math.atan2(translated_y, translated_x)
+    
+    # Compute the hypotenuse in the xy-plane
+    hyp_xy = math.sqrt(translated_x**2 + translated_y**2)
+    
+    # Compute the pitch (rotation around y-axis)
+    pitch = math.atan2(translated_z, hyp_xy)
+    
+    # Roll is assumed to be 0 as no rotation around x-axis is considered
     roll = 0
+    
+    # Convert to degrees
     yaw_deg = math.degrees(yaw)
     pitch_deg = math.degrees(pitch)
     roll_deg = math.degrees(roll)
     
     return roll_deg, pitch_deg, yaw_deg
+
 
 def get_distance(start,stop):
     x1,y1,_=start
@@ -120,51 +140,72 @@ def calculate_rotation_direction(current_orientation, dest_orientation):
         return 'clockwise',yaw_diff
     else:
         return 'anticlockwise',yaw_diff
-
-def go_to_loc(current_orientation,dest_pos):
-    global WALK_BACKWARD,WALK_FORWARD,TURN_LEFT,TURN_RIGHT
+ORIENTATION_SET=False
+def go_to_loc(dest_pos):
+    global WALK_BACKWARD,WALK_FORWARD,TURN_LEFT,TURN_RIGHT,POS_REACHED,ORIENTATION_SET
+    POS_REACHED=False
+    # Fetch current pos and orientationn
+    current_position, current_orientation = p.getBasePositionAndOrientation(robotId)
     rotation_quat = p.getQuaternionFromEuler([0, 0, -135*convert_rad_to_deg])
     resulting_quat = p.multiplyTransforms([0, 0, 0], current_orientation, [0, 0, 0], rotation_quat)[1]
-    dest_orientation=vector_to_euler(dest_pos)[2]*convert_rad_to_deg
+    dest_orientation=vector_to_euler_with_respect_to_point(dest_pos,current_position)[2]*convert_rad_to_deg
     current_orientation=p.getEulerFromQuaternion(resulting_quat)
     current_position, _ = p.getBasePositionAndOrientation(robotId)
     dst_to_loc=get_distance(current_position,dest_pos)
-    if not WALK_FORWARD and not WALK_BACKWARD:
-        orient,yaw_diff=calculate_rotation_direction(current_orientation[2],dest_orientation)
-        print(orient,yaw_diff)
+    orient,yaw_diff=calculate_rotation_direction(current_orientation[2],dest_orientation)
+    # print(dest_pos,dst_to_loc,yaw_diff)
+    print(current_orientation[2],dest_orientation,yaw_diff)
+    
+    if dst_to_loc<0.25:
+        print("DST TRIGGER")
+        POS_REACHED=True
+        ORIENTATION_SET=False
+        return
+    if True:
         if orient=='clockwise' and yaw_diff<-0.1:
+            print("CLOCK")
+            ORIENTATION_SET=False
             WALK_FORWARD=False
             WALK_BACKWARD=False
             TURN_RIGHT=True
             TURN_LEFT=False
         elif orient=='anticlockwise'and yaw_diff>0.1:
+            print("ANTICLOCK")
+            ORIENTATION_SET=False
             WALK_FORWARD=False
             WALK_BACKWARD=False
             TURN_RIGHT=False
             TURN_LEFT=True
         else:
+            ORIENTATION_SET=True
             WALK_FORWARD=False
             WALK_BACKWARD=False
             TURN_RIGHT=False
             TURN_LEFT=False
-    if not TURN_LEFT and not TURN_RIGHT:
-        print(dst_to_loc)
-        if dst_to_loc>0.15:
+    if ORIENTATION_SET :
+        print("WALKING")
+        if dst_to_loc>0.2:
             WALK_FORWARD=True
             WALK_BACKWARD=False
             TURN_RIGHT=False
             TURN_LEFT=False
+            
         else:
             WALK_FORWARD=False
             WALK_BACKWARD=False
             TURN_RIGHT=False
             TURN_LEFT=False
+            POS_REACHED=True
+            ORIENTATION_SET=False
+            
 
 
 # Connect to PyBullet
 physicsClient = p.connect(p.GUI)
 p.setAdditionalSearchPath(pybullet_data.getDataPath())  # optionally
 p.setGravity(0, 0, -10)
+p.setPhysicsEngineParameter(numSolverIterations=10)
+p.setPhysicsEngineParameter(numSubSteps=1)
 
 # Load the plane and robot URDF
 planeId = p.loadURDF("plane.urdf")
@@ -206,16 +247,23 @@ for angle in angles:
 open('location.txt', 'w').close()
 open("pointcloud.txt", "w").close()
 
+
+
+#Mapping
+current_position, current_orientation = p.getBasePositionAndOrientation(robotId)
+lidar_scan = perform_lidar_scan(robotId,current_position, current_orientation, num_rays, lidar_range)
+pos_list=plan_path(lidar_scan,current_position,[1,2.5,0])
+print(pos_list)
+pointColorsRGB = [[1, 0, 0] for _ in range(len(pos_list))]
+p.addUserDebugPoints(pos_list,pointColorsRGB, pointSize=10)
+i=0
+print(pos_list)
 while True:
     basePos, baseOrn = p.getBasePositionAndOrientation(robotId) # Get model position
     p.resetDebugVisualizerCamera( cameraDistance=4.7, cameraYaw=0, cameraPitch=-85,cameraTargetPosition=basePos) # fix camera onto model
-    #Mapping
-    current_position, current_orientation = p.getBasePositionAndOrientation(robotId)
-    lidar_scan = perform_lidar_scan(robotId,current_position, current_orientation, num_rays, lidar_range)
-    with open("pointcloud.txt", "a") as file:
-        file.write(f"{lidar_scan}\n")
-    req_position=[1,-1,0]
-    go_to_loc(current_orientation,req_position)
+    if POS_REACHED:
+        i=i+1
+    go_to_loc(pos_list[i])
     if WALK_FORWARD:
         run_single_joint_simulation("tl1_tl2",-convert_rad_to_deg * 90, robotId)
         run_single_joint_simulation("base_tl1",-convert_rad_to_deg * 40, robotId,duration=0.2)

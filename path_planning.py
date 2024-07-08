@@ -1,115 +1,233 @@
-import heapq
+"""
+
+A* grid planning
+
+author: Atsushi Sakai(@Atsushi_twi)
+        Nikos Kanargias (nkana@tee.gr)
+
+See Wikipedia article (https://en.wikipedia.org/wiki/A*_search_algorithm)
+
+"""
+
+import math
 import ast
 import matplotlib.pyplot as plt
 
-class Node:
-    def __init__(self, position, parent=None):
-        self.position = position
-        self.parent = parent
-        self.g = 0  # Cost from start to this node
-        self.h = 0  # Heuristic cost from this node to end
-        self.f = 0  # Total cost
+show_animation = False
 
-    def __eq__(self, other):
-        return self.position == other.position
 
-    def __lt__(self, other):
-        return self.f < other.f
+class AStarPlanner:
 
-def manhattan_distance(a, b):
-    """Calculate the Manhattan distance between points a and b"""
-    return abs(a[0] - b[0]) + abs(a[1] - b[1]) + abs(a[2] - b[2])
+    def __init__(self, ox, oy, resolution, rr):
+        """
+        Initialize grid map for a star planning
 
-def create_collision_set(collision_blocks):
-    """Convert collision blocks to a set for O(1) lookups"""
-    collision_set = set()
-    for (block_x, block_y) in collision_blocks:
-        for i in range(-3, 3, 1):
-            for j in range(-3, 3, 1):
-                collision_set.add((block_x + i, block_y + j))
-    return collision_set
+        ox: x position list of Obstacles [m]
+        oy: y position list of Obstacles [m]
+        resolution: grid resolution [m]
+        rr: robot radius[m]
+        """
 
-def is_collision(point, collision_set):
-    """Check if a point collides with any of the 2D blocks on the x, y plane"""
-    x, y, _ = point
-    return (x, y) in collision_set
+        self.resolution = resolution
+        self.rr = rr
+        self.min_x, self.min_y = 0, 0
+        self.max_x, self.max_y = 0, 0
+        self.obstacle_map = None
+        self.x_width, self.y_width = 0, 0
+        self.motion = self.get_motion_model()
+        self.calc_obstacle_map(ox, oy)
 
-def simplify_path(path):
-    """Simplify the path by collapsing consecutive points with the same direction"""
-    if not path:
-        return []
+    class Node:
+        def __init__(self, x, y, cost, parent_index):
+            self.x = x  # index of grid
+            self.y = y  # index of grid
+            self.cost = cost
+            self.parent_index = parent_index
 
-    simplified_path = []
-    current_direction = None
-    segment_start = path[0]
-    simplified_path.append(segment_start)
+        def __str__(self):
+            return str(self.x) + "," + str(self.y) + "," + str(
+                self.cost) + "," + str(self.parent_index)
 
-    for i in range(1, len(path)):
-        prev_point = path[i - 1]
-        current_point = path[i]
+    def planning(self, sx, sy, gx, gy):
+        """
+        A star path search
 
-        # Calculate direction change
-        direction = (
-            current_point[0] - prev_point[0],
-            current_point[1] - prev_point[1],
-            current_point[2] - prev_point[2]
-        )
+        input:
+            s_x: start x position [m]
+            s_y: start y position [m]
+            gx: goal x position [m]
+            gy: goal y position [m]
 
-        if direction != current_direction:
-            if current_direction is not None:
-                # If the direction changed, record the end of the segment
-                simplified_path.append(segment_start)
-            # Start a new segment
-            segment_start = prev_point
-            current_direction = direction
+        output:
+            rx: x position list of the final path
+            ry: y position list of the final path
+        """
 
-    # Add the final segment
-    if segment_start != path[-1]:
-        simplified_path.append(path[-1])
+        start_node = self.Node(self.calc_xy_index(sx, self.min_x),
+                               self.calc_xy_index(sy, self.min_y), 0.0, -1)
+        goal_node = self.Node(self.calc_xy_index(gx, self.min_x),
+                              self.calc_xy_index(gy, self.min_y), 0.0, -1)
 
-    return simplified_path
+        open_set, closed_set = dict(), dict()
+        open_set[self.calc_grid_index(start_node)] = start_node
 
-def astar(start, end, collision_set):
-    open_list = []
-    closed_list = set()
+        while True:
+            if len(open_set) == 0:
+                print("Open set is empty..")
+                break
 
-    start_node = Node(start)
-    end_node = Node(end)
-    
-    heapq.heappush(open_list, start_node)
+            c_id = min(
+                open_set,
+                key=lambda o: open_set[o].cost + self.calc_heuristic(goal_node,
+                                                                     open_set[
+                                                                         o]))
+            current = open_set[c_id]
 
-    while open_list:
-        current_node = heapq.heappop(open_list)
-        closed_list.add(current_node.position)
+            # show graph
+            if show_animation:  # pragma: no cover
+                plt.plot(self.calc_grid_position(current.x, self.min_x),
+                         self.calc_grid_position(current.y, self.min_y), "xc")
+                # for stopping simulation with the esc key.
+                plt.gcf().canvas.mpl_connect('key_release_event',
+                                             lambda event: [exit(
+                                                 0) if event.key == 'escape' else None])
+                if len(closed_set.keys()) % 10 == 0:
+                    plt.pause(0.001)
 
-        if current_node == end_node:
-            path = []
-            while current_node:
-                path.append(current_node.position)
-                current_node = current_node.parent
-            path.reverse()  # Reverse path to get it from start to end
-            return simplify_path(path)  # Simplify the path
+            if current.x == goal_node.x and current.y == goal_node.y:
+                print("Find goal")
+                goal_node.parent_index = current.parent_index
+                goal_node.cost = current.cost
+                break
 
-        # Explore neighbors (6 directions for 3D grid)
-        neighbors = [(current_node.position[0] + dx, current_node.position[1] + dy, current_node.position[2] + dz)
-                     for dx, dy, dz in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]]
+            # Remove the item from the open set
+            del open_set[c_id]
 
-        for neighbor_pos in neighbors:
-            if neighbor_pos in closed_list or is_collision(neighbor_pos, collision_set):
-                continue
+            # Add it to the closed set
+            closed_set[c_id] = current
 
-            neighbor_node = Node(neighbor_pos, current_node)
-            neighbor_node.g = current_node.g + 1  # Cost to move to a neighbor
-            neighbor_node.h = manhattan_distance(neighbor_pos, end_node.position)
-            neighbor_node.f = neighbor_node.g + neighbor_node.h
-            
-            # Check if node is already in the open list
-            if any(neighbor_node.position == item.position and neighbor_node.f >= item.f for item in open_list):
-                continue
+            # expand_grid search grid based on motion model
+            for i, _ in enumerate(self.motion):
+                node = self.Node(current.x + self.motion[i][0],
+                                 current.y + self.motion[i][1],
+                                 current.cost + self.motion[i][2], c_id)
+                n_id = self.calc_grid_index(node)
 
-            heapq.heappush(open_list, neighbor_node)
+                # If the node is not safe, do nothing
+                if not self.verify_node(node):
+                    continue
 
-    return []  # Return empty if no path is found
+                if n_id in closed_set:
+                    continue
+
+                if n_id not in open_set:
+                    open_set[n_id] = node  # discovered a new node
+                else:
+                    if open_set[n_id].cost > node.cost:
+                        # This path is the best until now. record it
+                        open_set[n_id] = node
+
+        rx, ry = self.calc_final_path(goal_node, closed_set)
+
+        return rx, ry
+
+    def calc_final_path(self, goal_node, closed_set):
+        # generate final course
+        rx, ry = [self.calc_grid_position(goal_node.x, self.min_x)], [
+            self.calc_grid_position(goal_node.y, self.min_y)]
+        parent_index = goal_node.parent_index
+        while parent_index != -1:
+            n = closed_set[parent_index]
+            rx.append(self.calc_grid_position(n.x, self.min_x))
+            ry.append(self.calc_grid_position(n.y, self.min_y))
+            parent_index = n.parent_index
+
+        return rx, ry
+
+    @staticmethod
+    def calc_heuristic(n1, n2):
+        w = 1.0  # weight of heuristic
+        d = w * math.hypot(n1.x - n2.x, n1.y - n2.y)
+        return d
+
+    def calc_grid_position(self, index, min_position):
+        """
+        calc grid position
+
+        :param index:
+        :param min_position:
+        :return:
+        """
+        pos = index * self.resolution + min_position
+        return pos
+
+    def calc_xy_index(self, position, min_pos):
+        return round((position - min_pos) / self.resolution)
+
+    def calc_grid_index(self, node):
+        return (node.y - self.min_y) * self.x_width + (node.x - self.min_x)
+
+    def verify_node(self, node):
+        px = self.calc_grid_position(node.x, self.min_x)
+        py = self.calc_grid_position(node.y, self.min_y)
+
+        if px < self.min_x:
+            return False
+        elif py < self.min_y:
+            return False
+        elif px >= self.max_x:
+            return False
+        elif py >= self.max_y:
+            return False
+
+        # collision check
+        if self.obstacle_map[node.x][node.y]:
+            return False
+
+        return True
+
+    def calc_obstacle_map(self, ox, oy):
+
+        self.min_x = round(min(ox))
+        self.min_y = round(min(oy))
+        self.max_x = round(max(ox))
+        self.max_y = round(max(oy))
+        print("min_x:", self.min_x)
+        print("min_y:", self.min_y)
+        print("max_x:", self.max_x)
+        print("max_y:", self.max_y)
+
+        self.x_width = round((self.max_x - self.min_x) / self.resolution)
+        self.y_width = round((self.max_y - self.min_y) / self.resolution)
+        print("x_width:", self.x_width)
+        print("y_width:", self.y_width)
+
+        # obstacle map generation
+        self.obstacle_map = [[False for _ in range(self.y_width)]
+                             for _ in range(self.x_width)]
+        for ix in range(self.x_width):
+            x = self.calc_grid_position(ix, self.min_x)
+            for iy in range(self.y_width):
+                y = self.calc_grid_position(iy, self.min_y)
+                for iox, ioy in zip(ox, oy):
+                    d = math.hypot(iox - x, ioy - y)
+                    if d <= self.rr:
+                        self.obstacle_map[ix][iy] = True
+                        break
+
+    @staticmethod
+    def get_motion_model():
+        # dx, dy, cost
+        motion = [[1, 0, 1],
+                  [0, 1, 1],
+                  [-1, 0, 1],
+                  [0, -1, 1],
+                  [-1, -1, math.sqrt(2)],
+                  [-1, 1, math.sqrt(2)],
+                  [1, -1, math.sqrt(2)],
+                  [1, 1, math.sqrt(2)]]
+
+        return motion
 
 def load_coordinates(filename):
     coordinates = []
@@ -120,48 +238,52 @@ def load_coordinates(filename):
                 coordinates.append(coords)  # Combine all coordinates into a single list
              
     return coordinates
+def remove_previous_duplicates(coords):
+    unique_coords = []
+    last_x, last_y = None, None
+    
+    for x, y in coords:
+        if x == last_x or y == last_y:
+            if unique_coords and (unique_coords[-1][0] == x or unique_coords[-1][1] == y):
+                unique_coords.pop()
+        unique_coords.append((x, y))
+        last_x, last_y = x, y
+    
+    return unique_coords
 
-def visualize(start, end, obstacles, path):
-    fig, ax = plt.subplots()
+def plan_path(coordinates,start_pos,goal_pos):
+    print(coordinates,start_pos,goal_pos)
+    round_coords = []
+    for coord in coordinates:
+        round_coords.append((round(coord[0]*10), round(coord[1]*10)))
+    # set obstacle positions
+    ox, oy = [], []
+    for i in range(len(round_coords)):
+        ox.append(round_coords[i][0])
+        oy.append(round_coords[i][1])
 
-    # Plot obstacles
-    for (x, y) in obstacles:
-        rect = plt.Rectangle((x, y), 1, 1, color='red', alpha=0.5)
-        ax.add_patch(rect)
+    # start and goal position
+    sx,sy,_=start_pos
+    gx,gy,_=goal_pos
+    sx,sy=sx*10,sy*10
+    gx,gy=gx*10,gy*10
+    grid_size = 1.5  # [m]
+    robot_radius = 6.0  # [m]
 
-    # Plot start and end points
-    ax.plot(*start, 'go', label='Start')
-    ax.plot(*end, 'bo', label='End')
 
-    # Plot the path
-    if path:
-        path_x, path_y, _ = zip(*path)
-        ax.plot(path_x, path_y, 'k--', label='Path')
+    if show_animation:  # pragma: no cover
+        plt.plot(ox, oy, ".k")
+        plt.plot(sx, sy, "og")
+        plt.plot(gx, gy, "xb")
+        plt.grid(True)
+        plt.axis("equal")
 
-    # Set limits and labels
-    ax.set_xlim(-50, 50)
-    ax.set_ylim(-50, 50)
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.legend()
-    plt.gca().set_aspect('equal', adjustable='box')
-    plt.show()
+    a_star = AStarPlanner(ox, oy, grid_size, robot_radius)
+    rx, ry = a_star.planning(sx, sy, gx, gy)
+    fin_coords=[]
+    for x,y in zip(rx,ry):
+        fin_coords.append((x/10,y/10,0))
+    # fin_coords=remove_previous_duplicates(fin_coords)
+    fin_coords.reverse()
+    return fin_coords
 
-# Path to your file
-filename = 'pointcloud.txt'
-
-# Read coordinates from file
-coordinates = load_coordinates(filename)
-round_coords = []
-for coord in coordinates[0]:
-    round_coords.append((round(coord[0] * 10), round(coord[1] * 10)))
-print(round_coords[0])
-
-collision_set = create_collision_set(round_coords)
-
-start = (0, 0, 0)
-end = (1 * 10, 4 * 10, 0)
-
-path = astar(start, end, collision_set)
-print("Path found:", path)
-visualize(start, end, round_coords, path)
