@@ -2,8 +2,8 @@ import pybullet as p
 import pybullet_data
 import time
 # Room dimensions
-room_length = 5
-room_width = 5
+room_length = 2.5
+room_width = 2.5
 room_height = 0.5
 wall_thickness = 0.1
 
@@ -48,6 +48,11 @@ def gen_room():
     create_wall(start_pos=[-room_length*2/3, -room_width, room_height / 2],
                 orientation=p.getQuaternionFromEuler([0, 0, 0]),
                 length=room_length*2/3, height=room_height, thickness=wall_thickness)
+
+    #obstacle
+    create_wall(start_pos=[-1, 1.2, room_height / 2],
+                orientation=p.getQuaternionFromEuler([0, 0, 1.5708]),
+                length=0.5, height=room_height, thickness=wall_thickness)
 
 
 # p.connect(p.GUI)

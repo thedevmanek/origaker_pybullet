@@ -153,9 +153,7 @@ def go_to_loc(dest_pos):
     current_position, _ = p.getBasePositionAndOrientation(robotId)
     dst_to_loc=get_distance(current_position,dest_pos)
     orient,yaw_diff=calculate_rotation_direction(current_orientation[2],dest_orientation)
-    # print(dest_pos,dst_to_loc,yaw_diff)
-    print(current_orientation[2],dest_orientation,yaw_diff)
-    
+
     if dst_to_loc<0.25:
         print("DST TRIGGER")
         POS_REACHED=True
@@ -249,16 +247,32 @@ open("pointcloud.txt", "w").close()
 
 
 
-#Mapping
-current_position, current_orientation = p.getBasePositionAndOrientation(robotId)
-lidar_scan = perform_lidar_scan(robotId,current_position, current_orientation, num_rays, lidar_range)
-pos_list=plan_path(lidar_scan,current_position,[1,2.5,0])
-print(pos_list)
-pointColorsRGB = [[1, 0, 0] for _ in range(len(pos_list))]
-p.addUserDebugPoints(pos_list,pointColorsRGB, pointSize=10)
 i=0
-print(pos_list)
+all_landmarks=[]
+def check_new_landmarks(coordinates):
+    global all_landmarks
+    unique_coords=0
+    for coord in coordinates:
+        round_coords=(round(coord[0]*10), round(coord[1]*10),round(coord[2]*100))
+        if round_coords not in all_landmarks:
+            all_landmarks.append(round_coords)
+            unique_coords=unique_coords+1
+    print(unique_coords)
+    if unique_coords>15:
+        return True
+    else:
+        return False
 while True:
+    current_position, current_orientation = p.getBasePositionAndOrientation(robotId)
+    lidar_scan = perform_lidar_scan(robotId,current_position, current_orientation, num_rays, lidar_range)
+    new_landmarks=check_new_landmarks(lidar_scan)
+    if new_landmarks:
+        p.removeAllUserDebugItems()
+        i=0
+        pos_list=plan_path(all_landmarks,current_position,[1,2,0])
+        # pointColorsRGB = [[1, 0, 0] for _ in range(len(pos_list))]
+        # p.addUserDebugPoints(pos_list,pointColorsRGB, pointSize=10)
+
     basePos, baseOrn = p.getBasePositionAndOrientation(robotId) # Get model position
     p.resetDebugVisualizerCamera( cameraDistance=4.7, cameraYaw=0, cameraPitch=-85,cameraTargetPosition=basePos) # fix camera onto model
     if POS_REACHED:

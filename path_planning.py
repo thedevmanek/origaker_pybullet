@@ -12,8 +12,9 @@ See Wikipedia article (https://en.wikipedia.org/wiki/A*_search_algorithm)
 import math
 import ast
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 
-show_animation = False
+show_animation = True
 
 
 class AStarPlanner:
@@ -62,7 +63,7 @@ class AStarPlanner:
             rx: x position list of the final path
             ry: y position list of the final path
         """
-
+        
         start_node = self.Node(self.calc_xy_index(sx, self.min_x),
                                self.calc_xy_index(sy, self.min_y), 0.0, -1)
         goal_node = self.Node(self.calc_xy_index(gx, self.min_x),
@@ -252,15 +253,30 @@ def remove_previous_duplicates(coords):
     return unique_coords
 
 def plan_path(coordinates,start_pos,goal_pos):
-    print(coordinates,start_pos,goal_pos)
+    plt.close()
     round_coords = []
     for coord in coordinates:
-        round_coords.append((round(coord[0]*10), round(coord[1]*10)))
+        round_coords.append((round(coord[0]), round(coord[1])))
     # set obstacle positions
     ox, oy = [], []
     for i in range(len(round_coords)):
         ox.append(round_coords[i][0])
         oy.append(round_coords[i][1])
+
+    distance =30
+    for x in range(-distance, distance + 1):
+        ox.append(x)
+        oy.append(distance)
+        ox.append(x)
+        oy.append(-distance)
+
+    for y in range(-distance + 1, distance):
+        ox.append(distance)
+        oy.append(y)
+        ox.append(-distance)
+        oy.append(y)
+
+
 
     # start and goal position
     sx,sy,_=start_pos
@@ -268,10 +284,11 @@ def plan_path(coordinates,start_pos,goal_pos):
     sx,sy=sx*10,sy*10
     gx,gy=gx*10,gy*10
     grid_size = 1.5  # [m]
-    robot_radius = 6.0  # [m]
+    robot_radius = 4  # [m]
 
 
     if show_animation:  # pragma: no cover
+        
         plt.plot(ox, oy, ".k")
         plt.plot(sx, sy, "og")
         plt.plot(gx, gy, "xb")
@@ -283,7 +300,10 @@ def plan_path(coordinates,start_pos,goal_pos):
     fin_coords=[]
     for x,y in zip(rx,ry):
         fin_coords.append((x/10,y/10,0))
-    # fin_coords=remove_previous_duplicates(fin_coords)
+    if show_animation:  # pragma: no cover
+        plt.plot(rx, ry, "-r")
+        plt.pause(0.001)
+        plt.show(block=False)
     fin_coords.reverse()
     return fin_coords
 
