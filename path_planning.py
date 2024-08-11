@@ -75,7 +75,9 @@ class AStarPlanner:
         while True:
             if len(open_set) == 0:
                 print("Open set is empty..")
-                break
+                rx=[]
+                ry=[]
+                return rx,ry
 
             c_id = min(
                 open_set,
@@ -252,11 +254,11 @@ def remove_previous_duplicates(coords):
     
     return unique_coords
 
-def plan_path(coordinates,start_pos,goal_pos):
+def plan_path(coordinates,start_pos,goal_pos,robot_radius=4,grid_size = 1):
     plt.close()
     round_coords = []
     for coord in coordinates:
-        round_coords.append((round(coord[0]), round(coord[1])))
+        round_coords.append((coord[0], coord[1]))
     # set obstacle positions
     ox, oy = [], []
     for i in range(len(round_coords)):
@@ -283,21 +285,21 @@ def plan_path(coordinates,start_pos,goal_pos):
     gx,gy,_=goal_pos
     sx,sy=sx*10,sy*10
     gx,gy=gx*10,gy*10
-    grid_size = 1.5  # [m]
-    robot_radius = 4  # [m]
-
+    # [m]
 
     if show_animation:  # pragma: no cover
-        
         plt.plot(ox, oy, ".k")
         plt.plot(sx, sy, "og")
         plt.plot(gx, gy, "xb")
         plt.grid(True)
         plt.axis("equal")
-
+    rx=[]
+    ry=[]
     a_star = AStarPlanner(ox, oy, grid_size, robot_radius)
     rx, ry = a_star.planning(sx, sy, gx, gy)
     fin_coords=[]
+    if len(rx)==0:
+        return None
     for x,y in zip(rx,ry):
         fin_coords.append((x/10,y/10,0))
     if show_animation:  # pragma: no cover

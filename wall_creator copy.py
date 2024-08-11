@@ -24,12 +24,12 @@ def gen_room():
     # Front wall
     create_wall(start_pos=[0, room_width / 3, room_height / 2],
                 orientation=p.getQuaternionFromEuler([0, 0, 0]),
-                length=room_length+5, height=room_height, thickness=wall_thickness)
+                length=room_length, height=room_height, thickness=wall_thickness)
 
     # Back wall
     create_wall(start_pos=[0, -room_width / 3, room_height / 2],
                 orientation=p.getQuaternionFromEuler([0, 0, 0]),
-                length=room_length+5, height=room_height, thickness=wall_thickness)
+                length=room_length, height=room_height, thickness=wall_thickness)
 
     # Left wall
     create_wall(start_pos=[room_length / 2, 0, room_height / 2],
@@ -44,19 +44,16 @@ def gen_room():
     # Front wall
     create_wall(start_pos=[-room_length*2/3, room_width, room_height / 2],
                 orientation=p.getQuaternionFromEuler([0, 0, 0]),
-                length=room_length*2/3 +3, height=room_height, thickness=wall_thickness)
+                length=room_length*2/3, height=room_height, thickness=wall_thickness)
     create_wall(start_pos=[-room_length*2/3, -room_width, room_height / 2],
                 orientation=p.getQuaternionFromEuler([0, 0, 0]),
                 length=room_length*2/3, height=room_height, thickness=wall_thickness)
 
     #obstacle
-    create_wall(start_pos=[-0.2, 2.3, room_height / 2],
+    create_wall(start_pos=[-1, 1.2, room_height / 2],
                 orientation=p.getQuaternionFromEuler([0, 0, 1.5708]),
-                length=1.5, height=room_height, thickness=wall_thickness)
-    create_wall(start_pos=[-0.2, 1.1, room_height / 2],
-                orientation=p.getQuaternionFromEuler([0, 0, 1.5708]),
-                length=0.4, height=room_height, thickness=wall_thickness)
-    
+                length=0.5, height=room_height, thickness=wall_thickness)
+
 
 # p.connect(p.GUI)
 # p.setAdditionalSearchPath(pybullet_data.getDataPath())
